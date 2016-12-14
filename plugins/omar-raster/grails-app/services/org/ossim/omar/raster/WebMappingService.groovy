@@ -2,6 +2,7 @@ package org.ossim.omar.raster
 
 import com.vividsolutions.jts.geom.Geometry
 
+import java.awt.Graphics2D
 import java.awt.Color
 import java.awt.Font
 import java.awt.FontMetrics
@@ -169,7 +170,7 @@ class WebMappingService implements ApplicationContextAware
     autoMosaicFontProperties
   }
 
-  def getMap(WmsCommand wmsRequest, def layers = null)
+  def getMap(WmsCommand wmsRequest, def layers = null, Boolean elevation)
   {
     def result = [image: null, errorMessage: null]
     def params = wmsRequest.toMap();
@@ -177,7 +178,9 @@ class WebMappingService implements ApplicationContextAware
     def maxBands = 1
     def wmsQuery
     def stretchMode = wmsRequest?.stretch_mode ? wmsRequest?.stretch_mode.toLowerCase() : null
-    def stretchModeRegion = wmsRequest?.stretch_mode_region ?: null
+    def stretchModeRegion = wmsRequest?.stretch_mode_region ?: (wmsRequest?.width == wmsRequest?.height) ? "global" : "viewport"
+    def brightness = wmsRequest?.brightness ? (wmsRequest.brightness as Double) : 0.0
+    def contrast = wmsRequest?.contrast ? (wmsRequest.contrast as Double) : 1.0
     def wmsView = new WmsView()
     def srs = wmsRequest?.srs
     def layerNames = wmsRequest.layers?.toLowerCase()
@@ -216,7 +219,7 @@ class WebMappingService implements ApplicationContextAware
       // if a range gsd was calculated then add it to the filter
       if(rangeGsd) wmsRequest.filter =  wmsRequest.filter?"((${wmsRequest.filter}) AND ${rangeGsd})".toString():rangeGsd
     }
-    wmsQuery = layers ? null : setupQuery( wmsRequest );
+    wmsQuery = (layers || elevation) ? null : setupQuery( wmsRequest );
 
 
 
@@ -297,6 +300,37 @@ class WebMappingService implements ApplicationContextAware
     {
       if(!autoMosaic) rasterEntries = rasterEntries?.reverse()
       def srcChains = []
+      def totalBands = 1
+      def viewportStretch = false
+
+      def threads = grailsApplication.config.threads?.enabled ?: false
+      Integer cache_tile_size = 1024
+      if (rasterEntries.size()>1)
+      {
+        threads = false
+      }
+      else if (threads == true && rasterEntries.size() == 1 && rasterEntries[0]?.className.equals("ossimKakaduNitfReader"))
+      {
+        cache_tile_size = 512
+      }
+      def imageRect = wmsView.getViewImageRect()
+      def midPoint = imageRect.midPoint()
+      def x = (int)( midPoint.x + 0.5 )
+      def y = (int)( midPoint.y + 0.5 )
+      x -= ( bounds.width * 0.5 );
+      y -= ( bounds.height * 0.5 );
+      def w = bounds.width
+      def h = bounds.height
+      def maxlen = (w > h) ? w : h
+      imageRect = null
+      midPoint = null
+      if (threads == true)
+      {
+        if (maxlen < 1024) cache_tile_size = 512
+        if (maxlen < 512) threads = false
+        //if (maxlen < 512) cache_tile_size = 256
+        //if (maxlen < 256) threads = false
+      }
 
       // we already are using the rasterEntries for mosaicking.  We will just massage
       // that list if auto mosaic is enabled.
@@ -337,7 +371,16 @@ class WebMappingService implements ApplicationContextAware
       }
       for ( def rasterEntry in rasterEntries )
       {
-        def chainMap = imageChainService.createImageChain( rasterEntry, params )
+        rasterEntry.adjustAccessTimeIfNeeded(24) // adjust every 24 hours
+        totalBands = rasterEntry?.numberOfBands
+        if (!stretchMode)
+        {
+          stretchMode = "linear_auto_min_max"
+        }
+
+        params.elevation = elevation
+
+        def chainMap = imageChainService.createImageChain( rasterEntry, params, true, threads )
         //chain.print()
         if ( chainMap && chainMap.chain && ( chainMap.chain.getChain() != null ) )
         {
@@ -365,19 +408,16 @@ class WebMappingService implements ApplicationContextAware
         if ( srcChains.size() > 1 )
         {
           // now establish mosaic and cut to match the output dimensions
-          kwlString.println "object${objectPrefixIdx}.type:ossimImageMosaic"
+          if (elevation)
+          {
+            kwlString.println "object${objectPrefixIdx}.type:ossimElevationMosaic\n"
+          }
+          else
+          {
+            kwlString.println "object${objectPrefixIdx}.type:ossimImageMosaic\n"
+          }
           ++objectPrefixIdx
         }
-        def imageRect = wmsView.getViewImageRect()
-        def midPoint = imageRect.midPoint()
-        def x = (int)( midPoint.x + 0.5 )
-        def y = (int)( midPoint.y + 0.5 )
-        x -= ( bounds.width * 0.5 );
-        y -= ( bounds.height * 0.5 );
-        def w = bounds.width
-        def h = bounds.height
-        imageRect = null
-        midPoint = null
 
         // for now scale all WMS requests to 8-bit
         // let's see what happens when I move this after the viewport stretch
@@ -390,6 +430,7 @@ class WebMappingService implements ApplicationContextAware
 
         // and make it either 1 band or 3 band output
         //
+ 	/*
         if ( maxBands <= 2 )
         {
           kwlString.println "object${objectPrefixIdx}.type:ossimBandSelector"
@@ -406,14 +447,16 @@ class WebMappingService implements ApplicationContextAware
           ++connectionId
           ++objectPrefixIdx
         }
+	*/
         kwlString.println "object${objectPrefixIdx}.type:ossimRectangleCutFilter"
         kwlString.println "object${objectPrefixIdx}.rect:(${x},${y},${w},${h},lh)"
         kwlString.println "object${objectPrefixIdx}.cut_type:null_outside"
         kwlString.println "object${objectPrefixIdx}.id:${connectionId}"
         ++objectPrefixIdx
         if ( ( stretchModeRegion == "viewport" ) &&
-                ( stretchMode != "none" ) )
+                ( stretchMode != "none" ) && (stretchMode != "remap") )
         {
+	  /*
           kwlString.println "object${objectPrefixIdx}.type:ossimImageHistogramSource"
           kwlString.println "object${objectPrefixIdx}.id:${connectionId + 1}"
           ++objectPrefixIdx
@@ -424,12 +467,80 @@ class WebMappingService implements ApplicationContextAware
           kwlString.println "object${objectPrefixIdx}.input_connection2:${connectionId + 1}"
           ++objectPrefixIdx
           connectionId += 2
+	  */
+          if (threads == true)
+          {
+            viewportStretch = true
+            ++connectionId
+            kwlString.println "object${objectPrefixIdx}.type:ossimMultiThreadSequencer\n"
+            kwlString.println "object${objectPrefixIdx}.num_threads:${grailsApplication.config.threads.number?:4}\n"
+            kwlString.println "object${objectPrefixIdx}.cache_tile_size:${cache_tile_size}\n"
+            kwlString.println "object${objectPrefixIdx}.use_cache:true\n"
+            kwlString.println "object${objectPrefixIdx}.use_shared_handlers:true\n"
+            kwlString.println "object${objectPrefixIdx}.create_histogram:true\n"
+            kwlString.println "object${objectPrefixIdx}.id:${connectionId}\n"
+            ++objectPrefixIdx
+            ++connectionId
+            kwlString.println "object${objectPrefixIdx}.type:ossimHistogramRemapper\n"
+            kwlString.println "object${objectPrefixIdx}.id:${connectionId}\n"
+            kwlString.println "object${objectPrefixIdx}.stretch_mode:${stretchMode}\n"
+            ++objectPrefixIdx
+          }
+          else
+          {
+            kwlString.println "object${objectPrefixIdx}.type:ossimImageHistogramSource\n"
+            kwlString.println "object${objectPrefixIdx}.id:${connectionId + 1}\n"
+            ++objectPrefixIdx
+            kwlString.println "object${objectPrefixIdx}.type:ossimHistogramRemapper\n"
+            kwlString.println "object${objectPrefixIdx}.id:${connectionId + 2}\n"
+            kwlString.println "object${objectPrefixIdx}.stretch_mode:${stretchMode}\n"
+            kwlString.println "object${objectPrefixIdx}.input_connection1:${connectionId}\n"
+            kwlString.println "object${objectPrefixIdx}.input_connection2:${connectionId + 1}\n"
+            ++objectPrefixIdx
+            connectionId += 2
+          }
         }
         // for now scale all WMS requests to 8-bit
-        kwlString.println "object${objectPrefixIdx}.type:ossimScalarRemapper"
-        kwlString.println "object${objectPrefixIdx}.id:${connectionId}"
-        ++connectionId
-        ++objectPrefixIdx
+        //kwlString.println "object${objectPrefixIdx}.type:ossimScalarRemapper"
+        //kwlString.println "object${objectPrefixIdx}.id:${connectionId}"
+        //++connectionId
+        //++objectPrefixIdx
+        // for now scale all WMS requests to 8-bit
+        if (!elevation)
+        {
+          kwlString.println "object${objectPrefixIdx}.type:ossimScalarRemapper\n"
+          ++objectPrefixIdx
+          if ( ( brightness != 0 ) || ( contrast != 1 ) )
+          {
+                kwlString.println "object${objectPrefixIdx}.type:ossimBrightnessContrastSource\n"
+                kwlString.println "object${objectPrefixIdx}.brightness: ${brightness ?: 0.0}\n"
+                kwlString.println "object${objectPrefixIdx}.contrast: ${contrast ?: 1.0}\n"
+                ++objectPrefixIdx
+          }
+        }
+
+        if (elevation)
+        {
+          kwlString.println "object${objectPrefixIdx}.type:ossimPixelFlipper\n"
+          kwlString.println "object${objectPrefixIdx}.target_range:-8388608 -500.0\n"
+          kwlString.println "object${objectPrefixIdx}.replacement_value:0.0\n"
+          ++objectPrefixIdx
+          kwlString.println "object${objectPrefixIdx}.type:ossimPixelFlipper\n"
+          kwlString.println "object${objectPrefixIdx}.target_range:32000 8388608 \n"
+          kwlString.println "object${objectPrefixIdx}.replacement_value:0.0\n"
+          ++objectPrefixIdx
+        }
+        if (threads == true && !viewportStretch)
+        {
+            ++connectionId
+            kwlString.println "object${objectPrefixIdx}.type:ossimMultiThreadSequencer\n"
+            kwlString.println "object${objectPrefixIdx}.num_threads:${grailsApplication.config.threads.number?:4}\n"
+            kwlString.println "object${objectPrefixIdx}.cache_tile_size:${cache_tile_size}\n"
+            kwlString.println "object${objectPrefixIdx}.use_cache:true\n"
+            kwlString.println "object${objectPrefixIdx}.use_shared_handlers:true\n"
+            kwlString.println "object${objectPrefixIdx}.create_histogram:false\n"
+            kwlString.println "object${objectPrefixIdx}.id:${connectionId}\n"
+        }      
       }
       else
       {
@@ -474,28 +585,28 @@ class WebMappingService implements ApplicationContextAware
         Integer height = fm.ascent+fm.descent
 
         Integer yOffset = 0
-        Integer x
-        Integer y
+        Integer x2
+        Integer y2
 
         switch(grailsApplication.config.autoMosaic.annotation.align)
         {
           case "CENTER":
-            y = (Integer)((result.image.height - (height*annotations.size()))/2)
+            y2 = (Integer)((result.image.height - (height*annotations.size()))/2)
             break
           case "TOP_CENTER":
-            y = height
+            y2 = height
             break
           case "BOTTOM_CENTER":
-            y = result.image.height - (height*annotations.size())
+            y2 = result.image.height - (height*annotations.size())
             break
           default:
             break
         }
         annotations.each{annotation->
           Integer width  = fm.bytesWidth(annotation.bytes,0, annotation.size())
-          x = (Integer)((result.image.width-width)/2)
-          g.drawString(annotation,x,y)
-          y += height
+          x2 = (Integer)((result.image.width-width)/2)
+          g.drawString(annotation,x2,y2)
+          y2 += height
         }
 
 
@@ -655,7 +766,7 @@ class WebMappingService implements ApplicationContextAware
       layers = imageDataSearchService?.getWmsImageLayers( filter )
     }
 
-    def wmsCapabilites = new WMSCapabilities( layers, serviceAddress )
+    def wmsCapabilites = new WMSCapabilities( layers, serviceAddress, wmsRequest?.version )
 
     return wmsCapabilites.getCapabilities()
   }
@@ -855,4 +966,3 @@ class WebMappingService implements ApplicationContextAware
   }
 
 }
-

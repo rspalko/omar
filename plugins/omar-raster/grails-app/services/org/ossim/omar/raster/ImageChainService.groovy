@@ -15,6 +15,8 @@ import org.ossim.omar.core.TransparentFilter
 import org.ossim.omar.core.ImageGenerator
 import org.ossim.omar.core.Utility;
 
+import joms.oms.Init;
+
 class ImageChainService
 {
 
@@ -68,7 +70,7 @@ class ImageChainService
      * @param params
      * @return a map that allocates a chain if specified and the keywordlist string representing the parameters
      */
-    def createImageChain(def entry, def params, def allocateChain = true)
+    def createImageChain(def entry, def params, def allocateChain = true, def threaded = false )
     {
         def quickLookFlagString = params?.quicklook ?: "false"
         def interpolation = params.interpolation ? params.interpolation : "bilinear"
@@ -78,12 +80,15 @@ class ImageChainService
         def requestFormat = params?.format?.toLowerCase()
         def sharpenWidth = params?.sharpen_width ?: null
         def sharpenSigma = params?.sharpen_sigma ?: null
-        def stretchMode = params?.stretch_mode ? params?.stretch_mode.toLowerCase() : null
-        def stretchModeRegion = params?.stretch_mode_region ?: null
-        def bands = params?.bands ?: ""
+        def stretchMode = params?.stretch_mode ? params?.stretch_mode.toLowerCase() : "linear_auto_min_max"
+        def stretchModeRegion = params?.stretch_mode_region ?: "global" 
+        def totalBands = 1
+        def bands = params?.bands ?: "0"
         def rotate = params?.rotate ?: null
         def scale = params?.scale ?: null
         def pivot = params?.pivot ?: null
+	def frame = params?.frame ?: 0
+	def process = params?.process ?: "true"
         def tempHistogramFile = entry?.getHistogramFile()//getFileFromObjects("histogram")?.name
         def tempOverviewFile = entry?.getFileFromObjects( "overview" )?.name
         def histogramFile = new File( tempHistogramFile ?: "" )
@@ -94,11 +99,13 @@ class ImageChainService
         def enableCache = true
         def viewGeom = params.wmsView ? params.wmsView.getImageGeometry() : params.viewGeom
         def keepWithinScales = params.keepWithinScales ?: false
-        def brightness = params.brightness ?: 0
-        def contrast = params.contrast ?: 1
+        def cacheTileSize = (threaded) ? 64 : 256 
+        def jpeg2000 = (entry?.className?.equals("ossimKakaduNitfReader"))
+        //def brightness = params.brightness ?: 0
+        //def contrast = params.contrast ?: 1
         // we will use this for a crude check to see if we are within decimation levels
         //
-        def geomPtr = createModelFromTiePointSet( entry );
+        def geomPtr = null //createModelFromTiePointSet( entry );
         double scaleCheck = 1.0
 
         if ( ( geomPtr != null ) && params.wmsView && keepWithinScales )
@@ -127,23 +134,47 @@ class ImageChainService
         }
         if ( entry )
         {
+	    totalBands = entry.numberOfBands
+            if (totalBands >= 3) bands = params?.bands ?: "2,1,0"
+
             // CONSTRUCT HANDLER
             //
             kwlString += "object${objectPrefixIdx}.type:${entry.className ? entry.className : 'ossimImageHandler'}\n"
             kwlString += "object${objectPrefixIdx}.entry:${entry.entryId}\n"
-            kwlString += "object${objectPrefixIdx}.filename:${entry.filename}\n"
+            kwlString += "object${objectPrefixIdx}.frame:${(params?.frame) ?: 0}\n"
+            kwlString += "object${objectPrefixIdx}.process:${(params?.process) ?: "true"}\n"
+            kwlString += "object${objectPrefixIdx}.hdfPath:${(entry.hdfPath) ?: ""}\n"
+            kwlString += "object${objectPrefixIdx}.filename:${entry.mainFile.name}\n"
             kwlString += "object${objectPrefixIdx}.width:${entry.width}\n"
             kwlString += "object${objectPrefixIdx}.height:${entry.height}\n"
+            if (jpeg2000 && totalBands > 3 && validBandSelection(totalBands, bands)) kwlString += "object${objectPrefixIdx}.bands:(${bands})\n"
             if ( overviewFile.exists() )
             {
                 kwlString += "object${objectPrefixIdx}.overview_file:${overviewFile}\n"
             }
+ 	    // Added a default band selector here because the sharpen and ortho filters do not handle disconnect/reconnect right now in multithreaded mode if they are first after the handler
+	    // This is a core dump crash workaround
+ 	    if (jpeg2000 && totalBands > 3 && validBandSelection(totalBands, bands))
+ 	    {
+ 	      kwlString += "object${objectPrefixIdx}.bands:(${bands})\n"
+ 	      ++objectPrefixIdx
+ 	      kwlString += "object${objectPrefixIdx}.type:ossimBandSelector\n"
+ 	      kwlString += "object${objectPrefixIdx}.bands:(0,1,2)\n"
+ 	    }
         }
         ++objectPrefixIdx
 
+      //kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
+      //kwlString += "object${objectPrefixIdx}.id:${++idStart}\n"
+      //kwlString += "object${objectPrefixIdx}.tile_size_xy:(64,64)\n"
+      //++objectPrefixIdx
+
+
+
+
         // CONSTRUCT BAND SELECTION IF NEEDED
         //
-        if ( bands )
+        if (bands && !(jpeg2000 && totalBands > 3))
         {
             if ( entry )
             {
@@ -195,11 +226,34 @@ class ImageChainService
             kwlString += "object${objectPrefixIdx}.type:ossimNullPixelFlip\n"
             ++objectPrefixIdx
         }
+
+        if (params.elevation)
+        {
+          // ELLIPSOID/MSL Remap
+          if (params.msl && !entry?.geoidFlag)
+          {
+             kwlString += "object${objectPrefixIdx}.type:ossimElevRemapper\n"
+             kwlString += "object${objectPrefixIdx}.remap_mode:geoid\n"
+             ++objectPrefixIdx
+          }
+          else if (!params.msl && entry?.geoidFlag)
+          {
+             kwlString += "object${objectPrefixIdx}.type:ossimElevRemapper\n"
+             kwlString += "object${objectPrefixIdx}.remap_mode:ellipsoid\n"
+             ++objectPrefixIdx
+          }
+
+          kwlString += "object${objectPrefixIdx}.type:ossimScalarRemapper\n"
+          kwlString += "object${objectPrefixIdx}.elevation:true\n"
+          kwlString += "object${objectPrefixIdx}.scalar_type:ossim_float32\n"
+          ++objectPrefixIdx
+        }
+
         // CONSTRUCT HISTOGRAM STRETCHING IF NEEDED
         //
         if ( stretchMode && stretchModeRegion )
         {
-            if ( ( stretchModeRegion == "global" ) && ( stretchMode != "none" ) )
+            if(stretchMode!="none" && stretchMode!="remap" && (stretchModeRegion!="viewport")) 
             {
                 if ( histogramFile.exists() )
                 {
@@ -214,7 +268,20 @@ class ImageChainService
                 }
             }
         }
+
+        if (stretchMode == "remap")
+        {
+          kwlString += "object${objectPrefixIdx}.type:ossimPiecewiseRemapper\n"
+          kwlString += "object${objectPrefixIdx}.remap_type:linear_native\n"
+          kwlString += "object${objectPrefixIdx}.number_bands:1\n"
+          //kwlString += "object${objectPrefixIdx}.scalar_type:OSSIM_UINT8\n"
+          kwlString += "object${objectPrefixIdx}.band0.remap0:((0, 127, 0, 127), (128, 255, 128, 382))\n"
+          kwlString += "object${objectPrefixIdx}.band0.remap1:((0, 382, 0, 255))\n"
+          ++objectPrefixIdx
+        }
+
         // if we are not the identity then add
+	/*
         if ( ( brightness != 0 ) || ( contrast != 1 ) )
         {
             kwlString += "object${objectPrefixIdx}.type:ossimBrightnessContrastSource\n"
@@ -223,6 +290,7 @@ class ImageChainService
 
             ++objectPrefixIdx
         }
+	*/
         // CONSTRUCT SHARPENING IF NEEDED
         //
         if ( sharpenMode )
@@ -254,11 +322,14 @@ class ImageChainService
         {
             //CONSTRUCT IMAGE CACHE
             //
+	  if (!threaded)
+          {
             kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
-            kwlString += "object${objectPrefixIdx}.tile_size_xy:(64,64)\n"
+            kwlString += "object${objectPrefixIdx}.tile_size_xy:(${cacheTileSize},${cacheTileSize})\n"
             kwlString += "object${objectPrefixIdx}.enable_cache:${enableCache}\n"
-
             ++objectPrefixIdx
+	  }
+
             //CONSTRUCT RENDERER
             //
             kwlString += "object${objectPrefixIdx}.type:ossimImageRenderer\n"
@@ -286,6 +357,16 @@ class ImageChainService
             ++objectPrefixIdx
             //CONSTRUCT VIEW CACHE
             //
+            if (!threaded)
+            {
+              kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
+              kwlString += "object${objectPrefixIdx}.tile_size_xy:(${cacheTileSize},${cacheTileSize})\n"
+              kwlString += "object${objectPrefixIdx}.enable_cache:${enableCache}\n"
+              ++objectPrefixIdx
+            }
+
+            //CONSTRUCT VIEW CACHE
+            //
            // kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
            // kwlString += "object${objectPrefixIdx}.tile_size_xy:(64,64)\n"
            // kwlString += "object${objectPrefixIdx}.enable_cache:${enableCache}\n"
@@ -295,10 +376,15 @@ class ImageChainService
         {
             //CONSTRUCT IMAGE CACHE
             //
-            kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
-            kwlString += "object${objectPrefixIdx}.enable_cache:${enableCache}\n"
+	  if (!threaded)
+          {
 
-            ++objectPrefixIdx
+            kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
+	    kwlString += "object${objectPrefixIdx}.tile_size_xy:(${cacheTileSize},${cacheTileSize})\n"
+            kwlString += "object${objectPrefixIdx}.enable_cache:${enableCache}\n"
+	    ++objectPrefixIdx
+          }
+
             //CONSTRUCT RENDERER
             //
             kwlString += "object${objectPrefixIdx}.type:ossimImageRenderer\n"
@@ -318,7 +404,17 @@ class ImageChainService
             {
                 kwlString += "object${objectPrefixIdx}.image_view_trans.pivot: (${pivot})\n"
             }
-            ++objectPrefixIdx
+      	    //CONSTRUCT VIEW CACHE
+            //
+            if (!threaded)
+            {
+              kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
+              kwlString += "object${objectPrefixIdx}.enable_cache:${enableCache}\n"
+              kwlString += "object${objectPrefixIdx}.tile_size_xy:(${cacheTileSize},${cacheTileSize})\n"
+              ++objectPrefixIdx
+            }
+
+            //++objectPrefixIdx
 
             //CONSTRUCT VIEW CACHE
             //
@@ -333,17 +429,17 @@ class ImageChainService
             //
             if ( params )
             {
-            //    kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
-            //    kwlString += "object${objectPrefixIdx}.enable_cache:${enableCache}\n"
-            //    kwlString += "object${objectPrefixIdx}.tile_size_xy:(64,64)\n"
-            //    ++objectPrefixIdx
+                kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
+                kwlString += "object${objectPrefixIdx}.enable_cache:${enableCache}\n"
+                kwlString += "object${objectPrefixIdx}.tile_size_xy:(${cacheTileSize},${cacheTileSize})\n"
+                ++objectPrefixIdx
             }
             else
             {
                 // because this is straight to an image let's just use the default
                 // tile size
-             //   kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
-             //   ++objectPrefixIdx
+                kwlString += "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
+                ++objectPrefixIdx
             }
         }
         def chain = null
@@ -353,7 +449,7 @@ class ImageChainService
             chain.loadChainKwlString( kwlString )
         }
 
-      //println "INPUT CHAIN *******************\n${kwlString}\n*************"
+        //println "INPUT CHAIN *******************\n${kwlString}\n*************"
         [chain: chain, kwl: kwlString, prefixIdx: objectPrefixIdx]
     }
 
@@ -485,7 +581,14 @@ class ImageChainService
 
       try{
 
+	//println (System.currentTimeMillis() as String)
+	//Init.instance().setTrace("ossimImageHandlerMtAdaptor.*")
+	//Init.instance().setTrace("ossimCacheTileSource.*")
+	//Init.instance().setTrace("ossimScalarRemapper.*")
+	//Init.instance().setTrace("ossimNitfTileSource.*")
+	
         def image = renderedImage.getData();
+	//println (System.currentTimeMillis() as String)
 
         ColorModel colorModel = renderedImage.colorModel
 
@@ -493,7 +596,7 @@ class ImageChainService
         Hashtable<?, ?> properties = null
 
         def transparentFlag = params?.transparent?.equalsIgnoreCase( "true" )
-        if ( image.numBands == 1 )
+        if ( image.numBands == 1  && image.dataBuffer instanceof java.awt.image.DataBufferByte )
         {
           result = Utility.convertToColorIndexModel( image.dataBuffer,
                   image.width,
@@ -521,9 +624,11 @@ class ImageChainService
           }
         }
 
+
       }
       catch(def e)
       {
+	println e.message
       }
       renderedImage.setImageSource(null)
       imageSource.setImageSource(null)

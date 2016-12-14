@@ -1,4 +1,4 @@
-package org.ossim.omar.raster
+package org.ossim.omar.raste
 
 import java.awt.Rectangle
 import java.awt.image.BufferedImage
@@ -16,6 +16,7 @@ import joms.oms.ImageModel
 class ImageSpaceService
 {
   def imageChainService
+  def grailsApplication
 
   static transactional = true
 
@@ -26,12 +27,35 @@ class ImageSpaceService
     // println "GetPixels: ${params}"
 //		def newParams = params.clone()
 //		newParams.image_cut = "${rect.x},${rect.y},${rect.width},${rect.height}"
+    def w = rect.width as Integer
+    def h = rect.height as Integer
+    def maxlen = (w > h) ? w : h
+    Integer cache_tile_size = 1024
+    def threads = grailsApplication.config.threads?.enabled ?: false
+    if (threads == true)
+    {
+      if (rasterEntry?.className.equals("ossimKakaduNitfReader"))
+      {
+        cache_tile_size = 512
+      }
+      if (maxlen < 1024) cache_tile_size = 512
+      if (maxlen < 512) threads = false
+      //if (maxlen < 512) cache_tile_size = 256
+      //if (maxlen < 256) threads = false
+      //def rotate = params?.rotate ?: null
+      //if (rotate) threads= false
+    }
+
     def result = null
     def idStart = 10000;
     def maxBands = 0
-    def rasterChain = imageChainService.createImageChain( rasterEntry, params ).chain
-    def stretchMode = params.stretch_mode ? params.stretch_mode.toLowerCase() : null
-    def stretchModeRegion = params.stretch_mode_region ? params.stretch_mode_region.toLowerCase() : null
+    def rasterChain = imageChainService.createImageChain( rasterEntry, params, true, threads ).chain
+    def stretchMode = params.stretch_mode ? params.stretch_mode.toLowerCase() : "linear_auto_min_max" 
+    def stretchModeRegion = params.stretch_mode_region ? params.stretch_mode_region.toLowerCase() : "global"
+    def brightness = params.brightness ? (params.brightness as Double) : 0.0
+    def contrast = params.contrast ? (params.contrast as Double) : 1.0
+    def viewportStretch = false
+
     //rasterChain.print()
     if ( rasterChain )
     {
@@ -40,24 +64,61 @@ class ImageSpaceService
       def kwlString = ""
       def kwlStringBuilder = new StringBuilder()
       kwlStringBuilder << "type:ossimImageChain\n"
-      if ( stretchModeRegion == "viewport" )
+      kwlStringBuilder << "object${objectPrefixIdx}.type:ossimRectangleCutFilter\n"
+      kwlStringBuilder << "object${objectPrefixIdx}.rect:(${rect.x},${rect.y},${rect.width},${rect.height},lh)\n"
+      kwlStringBuilder << "object${objectPrefixIdx}.cut_type:null_outside\n"
+      kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
+      ++objectPrefixIdx
+
+      if ( stretchModeRegion == "viewport" && stretchMode != "none" && stretchMode != "remap") // && rasterEntry.numberOfBands == 1 && !remapFirst)
       {
-        def x = rect.x + rect.width / 2 - 128
-        def y = rect.y + rect.height / 2 - 128
-        kwlStringBuilder << "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
-        kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
-        ++objectPrefixIdx
-        kwlStringBuilder << "object${objectPrefixIdx}.type:ossimImageHistogramSource\n"
-        kwlStringBuilder << "object${objectPrefixIdx}.area_of_interest.rect:(${x},${y},256,256,LH)\n"
-        kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
-        ++objectPrefixIdx
-        kwlStringBuilder << "object${objectPrefixIdx}.type:ossimHistogramRemapper\n"
-        kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
-        kwlStringBuilder << "object${objectPrefixIdx}.stretch_mode:${stretchMode}\n"
-        kwlStringBuilder << "object${objectPrefixIdx}.input_connection1:${idStart - 2}\n"
-        kwlStringBuilder << "object${objectPrefixIdx}.input_connection2:${idStart - 1}\n"
-        ++objectPrefixIdx
+        //def x = rect.x + rect.width / 2 - 128
+        //def y = rect.y + rect.height / 2 - 128
+	if (threads == true)
+	{
+	  viewportStretch = true
+          kwlStringBuilder << "object${objectPrefixIdx}.type:ossimMultiThreadSequencer\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.num_threads:${grailsApplication.config.threads.number?:4}\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.cache_tile_size:${cache_tile_size}\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.use_cache:true\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.use_shared_handlers:true\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.create_histogram:true\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
+          ++objectPrefixIdx
+          kwlStringBuilder << "object${objectPrefixIdx}.type:ossimHistogramRemapper\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.stretch_mode:${stretchMode}\n"
+          ++objectPrefixIdx
+	}
+	else
+	{
+          //kwlStringBuilder << "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
+          //kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
+          //++objectPrefixIdx
+          kwlStringBuilder << "object${objectPrefixIdx}.type:ossimImageHistogramSource\n"
+          //kwlStringBuilder << "object${objectPrefixIdx}.area_of_interest.rect:(${x},${y},256,256,LH)\n"
+	  //kwlStringBuilder << "object${objectPrefixIdx}.area_of_interest.rect:(${x},${y},${cache_tile_size},${cache_tile_size},LH)\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
+          ++objectPrefixIdx
+          kwlStringBuilder << "object${objectPrefixIdx}.type:ossimHistogramRemapper\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.stretch_mode:${stretchMode}\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.input_connection1:${idStart - 2}\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.input_connection2:${idStart - 1}\n"
+          ++objectPrefixIdx
+	}
       }
+      if ( ( brightness != 0 ) || ( contrast != 1 ) )
+      {
+          kwlStringBuilder << "object${objectPrefixIdx}.type:ossimBrightnessContrastSource\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.brightness: ${brightness ?: 0.0}\n"
+          kwlStringBuilder << "object${objectPrefixIdx}.contrast: ${contrast ?: 1.0}\n"
+	  kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
+          ++objectPrefixIdx
+      }
+
+/*
+
       if ( maxBands == 2 )
       {
         kwlStringBuilder << "object${objectPrefixIdx}.type:ossimBandSelector\n"
@@ -74,16 +135,29 @@ class ImageSpaceService
       }
       else
       {
-        ++idStart
+        //++idStart
       }
+*/
       kwlStringBuilder << "object${objectPrefixIdx}.type:ossimScalarRemapper\n"
       kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
       ++objectPrefixIdx
-      kwlStringBuilder << "object${objectPrefixIdx}.type:ossimRectangleCutFilter\n"
-      kwlStringBuilder << "object${objectPrefixIdx}.rect:(${rect.x},${rect.y},${rect.width},${rect.height},lh)\n"
-      kwlStringBuilder << "object${objectPrefixIdx}.cut_type:null_outside\n"
-      kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
-      ++objectPrefixIdx
+
+      if (threads == true && !viewportStretch)
+      {
+        kwlStringBuilder << "object${objectPrefixIdx}.type:ossimMultiThreadSequencer\n"
+        kwlStringBuilder << "object${objectPrefixIdx}.num_threads:${grailsApplication.config.threads.number?:4}\n"
+        kwlStringBuilder << "object${objectPrefixIdx}.cache_tile_size:${cache_tile_size}\n"
+        kwlStringBuilder << "object${objectPrefixIdx}.use_cache:true\n"
+        kwlStringBuilder << "object${objectPrefixIdx}.use_shared_handlers:true\n"
+        kwlStringBuilder << "object${objectPrefixIdx}.create_histogram:false\n"
+        kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
+      }
+
+      //kwlStringBuilder << "object${objectPrefixIdx}.type:ossimRectangleCutFilter\n"
+      //kwlStringBuilder << "object${objectPrefixIdx}.rect:(${rect.x},${rect.y},${rect.width},${rect.height},lh)\n"
+      //kwlStringBuilder << "object${objectPrefixIdx}.cut_type:null_outside\n"
+      //kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
+      //++objectPrefixIdx
      // kwlStringBuilder << "object${objectPrefixIdx}.type:ossimCacheTileSource\n"
      // kwlStringBuilder << "object${objectPrefixIdx}.id:${++idStart}\n"
      // ++objectPrefixIdx
@@ -223,4 +297,19 @@ class ImageSpaceService
 
     return upIsUp
   }
-}
+
+  def computeIlluminationIsUp(String filename, Integer entryId)
+  {
+      Double illumIsUp = 0.0
+
+      def imageSpaceModel = new ImageModel()
+      if ( imageSpaceModel.setModelFromFile(filename, entryId as Integer) )
+      {
+          illumIsUp = imageSpaceModel.illuminationIsUp();
+          imageSpaceModel.destroy()
+          imageSpaceModel.delete()
+      }
+
+      return illumIsUp
+  }
+
