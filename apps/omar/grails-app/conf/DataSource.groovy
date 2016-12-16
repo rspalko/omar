@@ -21,7 +21,7 @@ hibernate {
 environments {
     development {
         dataSource {
-            dbCreate = "create-drop" // one of 'create', 'create-drop', 'update', 'validate', ''
+            dbCreate = "update" // one of 'create', 'update', 'update', 'validate', ''
             url = "jdbc:postgresql:omardb-${appVersion}-dev"
         }
     }

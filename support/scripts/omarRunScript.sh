@@ -1,8 +1,8 @@
 #!/usr/bin/env groovy
 
 environmentVariables =[
-   OMAR_URL:"http://localhost/omar",
-   OMAR_THUMBNAIL_CACHE:"/data/omar/omar-cache",
+   OMAR_URL:"http://localhost:8080/omar",
+   OMAR_THUMBNAIL_CACHE:"/opt/omar-cache",
    NTHREADS: 4,
    OMARDB:"omardb-${System.env.OSSIM_RELEASE_VERSION_NUMBER?:System.env.OSSIM_VERSION}-prod",
    POSTGRES_USER:"postgres",
@@ -10,7 +10,7 @@ environmentVariables =[
    POST_COMMAND_LINE:"NO",
    LOG_FILE:"",
    PID_FILE:"",
-   CLASSPATH:"${System.env.OSSIM_DIST_ROOT?:System.env.OSSIM_INSTALL_PREFIX}/tomcat/webapps/omar/WEB-INF/lib", 
+   CLASSPATH:"${System.env.CATALINA_HOME}/webapps/omar/WEB-INF/lib",
    STAGE_FILE_FILTER:"tfd,idop,tfrd,e0,sid,ts,mpg,mpeg,jp2,j2k,toc,ras,jpg,jpeg,hsi,hri,tiff,tif,ntf,nitf,img",
    HISTOGRAM_OPTIONS:"--create-histogram-fast",
    OVERVIEW_OPTIONS:"--compression-type JPEG --compression-quality 75"

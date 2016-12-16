@@ -24,6 +24,7 @@ if ( new File( "${userHome}/.grails/${appName}-config.groovy" ).exists() )
 {
   grails.config.locations << "file:${userHome}/.grails/${appName}-config.groovy"
 }
+grails.config.locations = [ "file:/opt/omar/install/conf/${appName}-config.groovy", "file:/opt/omar/install/conf/${appName}-config.properties"]
 if ( System.env.OMAR_CONFIG )
 {
   grails.config.locations << "file:${System.env.OMAR_CONFIG}"

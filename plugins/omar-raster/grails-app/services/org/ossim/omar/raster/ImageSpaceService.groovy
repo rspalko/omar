@@ -312,4 +312,4 @@ class ImageSpaceService
 
       return illumIsUp
   }
-
+}

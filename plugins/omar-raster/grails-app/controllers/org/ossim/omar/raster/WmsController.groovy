@@ -417,7 +417,7 @@ class WmsController extends OgcController implements InitializingBean
       }
 
       def layers = rasterEntrySearchService.findRasterEntries( cmd?.layers?.split( ',' ) )
-      def mapResult = webMappingService.getMap( cmd, layers )
+      def mapResult = webMappingService.getMap( cmd, layers, false )
 
       internaltime = System.currentTimeMillis()
 

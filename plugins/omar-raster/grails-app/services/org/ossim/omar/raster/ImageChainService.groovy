@@ -141,9 +141,9 @@ class ImageChainService
             //
             kwlString += "object${objectPrefixIdx}.type:${entry.className ? entry.className : 'ossimImageHandler'}\n"
             kwlString += "object${objectPrefixIdx}.entry:${entry.entryId}\n"
-            kwlString += "object${objectPrefixIdx}.frame:${(params?.frame) ?: 0}\n"
-            kwlString += "object${objectPrefixIdx}.process:${(params?.process) ?: "true"}\n"
-            kwlString += "object${objectPrefixIdx}.hdfPath:${(entry.hdfPath) ?: ""}\n"
+            //kwlString += "object${objectPrefixIdx}.frame:${(params?.frame) ?: 0}\n"
+            //kwlString += "object${objectPrefixIdx}.process:${(params?.process) ?: "true"}\n"
+            //kwlString += "object${objectPrefixIdx}.hdfPath:${(entry.hdfPath) ?: ""}\n"
             kwlString += "object${objectPrefixIdx}.filename:${entry.mainFile.name}\n"
             kwlString += "object${objectPrefixIdx}.width:${entry.width}\n"
             kwlString += "object${objectPrefixIdx}.height:${entry.height}\n"

@@ -393,7 +393,7 @@ class SuperOverlayService implements InitializingBean
     }
     else
     {
-      mapResult = webMappingService.getMap( wmsRequest, [rasterEntry] )
+      mapResult = webMappingService.getMap( wmsRequest, [rasterEntry], false )
     }
 
     [kml: kmlbuilder.bind( kmlnode ).toString(), image: mapResult.image, format: "${ext}", imagePath: "images/image.${ext}"]
