@@ -333,6 +333,10 @@ OMAR.models.RasterEntryDataCollection=Backbone.Collection.extend({
                         chipWidth=Math.round(chipWidth*ratio);
                     }
                 }
+		var maxDim = Math.max(model.get("width"), model.get("height"));
+		var twidth = 128, theight = 128;
+		if (model.get("width") > model.get("height")) theight = parseInt(theight * (model.get("height")/model.get("width"))+1);
+		else twidth = parseInt(twidth * (model.get("width")/model.get("height"))+1);
 
                 var bboxModel = new OMAR.models.BBOX();
                 bboxModel.setFromWfsFeatureGeom(feature.geometry);
@@ -411,7 +415,7 @@ OMAR.models.RasterEntryDataCollection=Backbone.Collection.extend({
                     ,center_lat_lon:centerPoint.y+","+centerPoint.x
                     ,"ground_geom":JSON.stringify(feature.geometry)
                     ,"thumbnail":"<a onclick="+thumbnailOpenUrl+" class='link_cursor' >" +
-                        "<img class='thumbnail-img' src='"+thumbnailUrl+"' size='128'></img></a>"
+                        "<img src='"+thumbnailUrl+"' size='128' width='" + twidth + "' height='" + theight + "'></img></a>"
                     ,"view": "<ul>"+omarUrlRawButton + omarUrlOrthoButton+"</ul>"
                     ,"links": "<ul>"+omarUrlCapabilitiesLink+omarUrlGetMapLink+omarUrlGetKMLLink+omarUrlSuperOverlayLink+"</ul>"
                     ,"acquisition_date":acquisition_date
