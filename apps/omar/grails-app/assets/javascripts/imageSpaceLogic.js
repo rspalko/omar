@@ -585,6 +585,7 @@ function setMapCtrTxt( center )
         $( "dmsMapCtr" ).value = OMAR.coordConvert.ddToDms( center.lat, center.lon );
         $( "point" ).value = OMAR.coordConvert.ddToMgrs( center.lat, center.lon );
     }
+    /*
     else
     {
         center = mapWidget.getMap().getCenter();
@@ -593,6 +594,7 @@ function setMapCtrTxt( center )
         $( "dmsMapCtr" ).value = OMAR.coordConvert.ddToDms( center.lat, center.lon );
         $("point").value = OMAR.coordConvert.ddToMgrs(center.lat, center.lon);
     }
+    */
 }
 
 /*
@@ -1095,7 +1097,7 @@ function measureFinished( evt )
 //// $("dmsMapCtr").value = OMAR.coordConvert.ddToDms(center.lat, center.lon);
 //// $("point").value = OMAR.coordConvert.ddToMgrs(center.lat, center.lon);
 //}
-
+/*
 function setMapCtr( unit, value )
 {
     var lat, lon;
@@ -1183,6 +1185,7 @@ function setMapCtr( unit, value )
     setMapCtrTxt();
 
 }
+*/
 
 function formatPqePoint()
 {
@@ -1558,26 +1561,27 @@ function init( mapWidth, mapHeight )
     rotationAngle = params.rotate || 0;
     OpenLayers.ImgPath = links.openLayersImgPath;
     var defaultResolutions = [1.0, .5, .25, .125, .0625 ];
-    var resolutions = [];
+    //var resolutions = [];
     var width = rasterEntry.width;
     var height = rasterEntry.height;
     //var url = links.getTileOpenLayers;
     var url = links.getTile;
     var bounds = new OpenLayers.Bounds( 0, 0, width, height );
-    var idx = 0;
-    var currentLevel = resLevels;
+    //var idx = 0;
+    //var currentLevel = resLevels;
 
-    for ( idx = resLevels - 1; idx > -8; --idx )
-    {
-        resolutions.push( Math.pow( 2, idx ) );
-    }
+    //for ( idx = resLevels - 1; idx > -8; --idx )
+    //{
+    //    resolutions.push( Math.pow( 2, idx ) );
+    //}
     map = new OpenLayers.Map( "map", { controls: [],
         theme: null,
-        buffer: 0,
+        //buffer: 0,
         maxExtent: bounds,
-        resolutions: resolutions
-        //maxResolution: 16,
+        //resolutions: resolutions
+        maxResolution: 16,
         //numZoomLevels:numZoomLevels
+	numZoomLevels:(resLevels+5)
     } );
 
     map.events.manipulator = OMAR.imageManipulator;

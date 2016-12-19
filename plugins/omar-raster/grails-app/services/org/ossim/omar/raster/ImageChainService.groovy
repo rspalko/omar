@@ -90,9 +90,19 @@ class ImageChainService
 	def frame = params?.frame ?: 0
 	def process = params?.process ?: "true"
         def tempHistogramFile = entry?.getHistogramFile()//getFileFromObjects("histogram")?.name
-        def tempOverviewFile = entry?.getFileFromObjects( "overview" )?.name
+	def tempOverviewFile = entry?.mainFile?.name.substring(0, entry?.mainFile?.name.lastIndexOf(".")) + ".ovr"
         def histogramFile = new File( tempHistogramFile ?: "" )
         def overviewFile = new File( tempOverviewFile ?: "" )
+	if (!overviewFile.exists()) 
+	{
+		def tempOverview2File = entry?.mainFile?.name.substring(0, entry?.mainFile?.name.lastIndexOf(".")) + "_e" + entry?.entryId + ".ovr"
+		overviewFile = new File( tempOverview2File ?: "" )
+	}
+	if (!overviewFile.exists()) 
+	{
+		def tempOverview3File = entry?.getFileFromObjects( "overview" )?.name
+		overviewFile = new File( tempOverview3File ?: "" )
+	}
         def objectPrefixIdx = 0
         def kwlString = "type: ossimImageChain\n"
         def quickLookFlag = false
@@ -136,6 +146,12 @@ class ImageChainService
         {
 	    totalBands = entry.numberOfBands
             if (totalBands >= 3) bands = params?.bands ?: "2,1,0"
+	    if (bands == "default")
+	    {
+		if (totalBands < 3) bands = "0";
+		else if (totalBands == 3) bands = "0,1,2";
+		else bands = "2,1,0";
+	    }
 
             // CONSTRUCT HANDLER
             //
