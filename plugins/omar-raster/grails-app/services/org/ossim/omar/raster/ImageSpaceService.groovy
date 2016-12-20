@@ -1,4 +1,4 @@
-package org.ossim.omar.raste
+package org.ossim.omar.raster
 
 import java.awt.Rectangle
 import java.awt.image.BufferedImage
