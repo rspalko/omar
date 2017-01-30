@@ -1,7 +1,7 @@
 package org.ossim.omar.raster
 
 import com.vividsolutions.jts.geom.Geometry
-import com.vividsolutions.jts.geom.MultiPolygon
+//import com.vividsolutions.jts.geom.MultiPolygon
 import com.vividsolutions.jts.geom.Polygon
 import com.vividsolutions.jts.io.WKTReader
 import org.hibernate.spatial.GeometryType
@@ -56,7 +56,7 @@ class RasterEntry
   BigInteger styleId
   Boolean keepForever
   Boolean crossesDateline
-  MultiPolygon groundGeom
+  Polygon groundGeom
   Date acquisitionDate
   Integer validModel
 
@@ -70,6 +70,9 @@ class RasterEntry
   String className
 
   String otherTagsXml
+ 
+  Double sensorAzimuth
+  Double upAngle
 
   static transients = ["otherTagsMap"]
 
@@ -105,7 +108,7 @@ class RasterEntry
     entryId index: 'raster_entry_entry_id_idx'
     fileType index: 'raster_entry_filetype_idx'
     filename index: 'raster_entry_filename_idx'
-    groundGeom type: GeometryType, sqlType: 'geometry(MultiPolygon, 4326)'
+    groundGeom type: GeometryType, sqlType: 'geometry(Polygon, 4326)'
     imageCategory index: 'raster_entry_image_category_idx'
     imageId index: 'raster_entry_image_id_idx'
     imageRepresentation index: 'raster_entry_image_representation_idx'
@@ -126,6 +129,7 @@ class RasterEntry
     title index: 'raster_entry_title_idx'
     title wacCode: 'raster_entry_wac_code_idx'
     validModel index: 'raster_entry_valid_model_idx'
+    sensorAzimuth index: 'raster_entry_sensor_azimuth_idx'
   }
 
   static constraints = {
@@ -184,6 +188,8 @@ class RasterEntry
 
     groundGeom( nullable: false )
     acquisitionDate( nullable: true )
+    sensorAzimuth( nullable: true )
+    upAngle( nullable: true )
   }
 
   def beforeInsert = {
