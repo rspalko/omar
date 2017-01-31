@@ -24,7 +24,7 @@ if ( new File( "${userHome}/.grails/${appName}-config.groovy" ).exists() )
 {
   grails.config.locations << "file:${userHome}/.grails/${appName}-config.groovy"
 }
-grails.config.locations = [ "file:/opt/omar/install/conf/${appName}-config.groovy", "file:/opt/omar/install/conf/${appName}-config.properties"]
+//grails.config.locations = [ "file:/opt/omar/install/conf/${appName}-config.groovy", "file:/opt/omar/install/conf/${appName}-config.properties"]
 if ( System.env.OMAR_CONFIG )
 {
   grails.config.locations << "file:${System.env.OMAR_CONFIG}"
@@ -265,6 +265,12 @@ wms {
   base {
     defaultOptions = [isBaseLayer: true, numZoomLevels: 20, buffer: 0, transitionEffect: "resize"]
     layers = [
+          [
+              url: "http://129.206.228.72/cached/osm",
+              params: [layers: "osm_auto:all", format: "image/png", transparent: true, bgcolor: '#99B3CC'],
+	      name: "OMS WMS",
+	      options: defaultOptions
+	  ],
 //        [
 //            url: "http://hyperquad.ucsd.edu/cgi-bin/i-cubed",
 //            params: [layers: "icubed", format: "image/png", transparent: true, bgcolor: '#99B3CC'],
